@@ -131,6 +131,21 @@ export class DevelopmentSubcontroller extends MaraTaskableSubcontroller {
         let shortestUnavailableChain = this.getShortestUnavailableChain(economyComposition, produceableCfgIds);
         let selectedCfgIds: Array<string> | null = null;
 
+        // --- Анализ: если мало свободных людей, приоритет фермы ---
+        const mining = this.settlementController.MiningController;
+        const stashed = mining.GetStashedResourses();
+        if (stashed.People < 10) {
+            // Получаем все возможные фермы/жильё
+            const housingCfgIds = MaraUtils.GetAllHousingConfigIds(this.settlementController.Settlement);
+            for (const cfgId of housingCfgIds) {
+                if (!economyComposition.has(cfgId)) {
+                    selectedCfgIds = this.addTechChain(cfgId, economyComposition);
+                    this.Debug(`[AI] FreePeople < 10, prioritizing housing/farm: ${cfgId}`);
+                    break;
+                }
+            }
+        }
+
         // --- Динамическая приоритизация ---
         // Если есть bottleneck по ресурсу — приоритет соответствующих построек
         if (this.dynamicPriorityState.mainBottleneck !== null && this.dynamicPriorityState.bottleneckPriority > 1) {
