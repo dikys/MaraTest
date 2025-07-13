@@ -12,7 +12,7 @@ import { TacticalSubcontroller } from "./Subcontrollers/TacticalSubcontroller";
 import { MaraPoint } from "./Common/MaraPoint";
 import { MaraUtils } from "./MaraUtils";
 import { UnitComposition } from "./Common/UnitComposition";
-import { MaraSettlementControllerSettings } from "./Common/Settlement/SettlementControllerSettings";
+import { MaraAIConfig } from "./Common/MaraAIConfig";
 import { SettlementClusterLocation } from "./Common/Settlement/SettlementClusterLocation";
 import { MaraRect } from "./Common/MaraRect";
 import { MaraUnitCacheItem } from "./Common/Cache/MaraUnitCacheItem";
@@ -97,7 +97,7 @@ export class MaraSettlementController {
     public Settlement: Settlement;
     public MasterMind: MasterMind;
     public Player: Player;
-    public Settings: MaraSettlementControllerSettings;
+    public Settings: MaraAIConfig;
 
     public MiningController: MiningSubcontroller;
     public ProductionController: ProductionSubcontroller;
@@ -124,7 +124,7 @@ export class MaraSettlementController {
         this.Settlement = settlement;
         this.Player = player;
         this.MasterMind = settlementMM;
-        this.Settings = new MaraSettlementControllerSettings();
+        this.Settings = new MaraAIConfig();
 
         if (!this.MasterMind.IsWorkMode) {
             this.Debug("Engaging MasterMind");
