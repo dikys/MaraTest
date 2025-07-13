@@ -1,0 +1,11 @@
+{
+  "Uid": "#ContentPack_Mara_Test",
+  "DisplayName": "МараTest",
+  "Description": "Добавляет в игру ботов",
+  "Authors": "Ghost",
+  "BuiltIn": false,
+  "StandAlone": false,
+  "Params": null,
+  "GameVersion": "0.76pre",
+  "ModVersion": "2.01"
+}
