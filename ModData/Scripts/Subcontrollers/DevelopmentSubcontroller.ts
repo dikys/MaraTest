@@ -6,6 +6,8 @@ import { UnitComposition } from "../Common/UnitComposition";
 import { DevelopSettlementTask } from "../SettlementSubcontrollerTasks/DevelopmentSubcontroller/DevelopSettlementTask/DevelopSettlementTask";
 import { MaraPoint } from "../Common/MaraPoint";
 import { DefenceBuildTask } from "../SettlementSubcontrollerTasks/DevelopmentSubcontroller/DefenceBuildTask/DefenceBuildTask";
+import { MaraResources } from "../Common/MapAnalysis/MaraResources";
+import { MaraResourceType } from "../Common/MapAnalysis/MaraResourceType";
 
 export class DevelopmentSubcontroller extends MaraTaskableSubcontroller {
     protected onTaskSuccess(tickNumber: number): void {
@@ -28,8 +30,71 @@ export class DevelopmentSubcontroller extends MaraTaskableSubcontroller {
     }
 
     protected doRoutines(tickNumber: number): void {
-        //do nothing
+        // Bottleneck & threat analysis + flexible worker redistribution
+        if (tickNumber % 50 === 0) {
+            this.analyzeAndRedistributeWorkers();
+        }
     }
+
+    /**
+     * Анализ угроз и bottleneck-ов, перераспределение рабочих
+     */
+    private analyzeAndRedistributeWorkers(): void {
+        // 1. Анализ угроз
+        const isUnderAttack = this.settlementController.StrategyController.IsUnderAttack();
+        if (isUnderAttack) {
+            this.Debug("[AI] Threat detected: under attack. Prioritizing defense tech/buildings.");
+            this.dynamicPriorityState.defensePriority = 2;
+            this.dynamicPriorityState.economyPriority = 0.5;
+        } else {
+            this.dynamicPriorityState.defensePriority = 1;
+            this.dynamicPriorityState.economyPriority = 1;
+        }
+
+        // 2. Анализ bottleneck-ов по ресурсам
+        const mining = this.settlementController.MiningController;
+        const stashed = mining.GetStashedResourses();
+        const resourceThresholds = {
+            [MaraResourceType.Wood]: 500,
+            [MaraResourceType.Metal]: 500,
+            [MaraResourceType.Gold]: 300,
+            [MaraResourceType.People]: 5
+        };
+        let mainBottleneck: MaraResourceType | null = null;
+        let minRatio = Infinity;
+        for (const type of [MaraResourceType.Wood, MaraResourceType.Metal, MaraResourceType.Gold, MaraResourceType.People]) {
+            const ratio = stashed.Resources.get(type)! / resourceThresholds[type];
+            if (ratio < minRatio) {
+                minRatio = ratio;
+                mainBottleneck = type;
+            }
+        }
+        this.dynamicPriorityState.mainBottleneck = mainBottleneck;
+        if (mainBottleneck !== null && minRatio < 1) {
+            this.Debug(`[AI] Bottleneck detected: ${MaraResourceType[mainBottleneck]} (ratio: ${minRatio.toFixed(2)})`);
+            this.dynamicPriorityState.bottleneckPriority = 2;
+        } else {
+            this.dynamicPriorityState.bottleneckPriority = 1;
+        }
+
+        // 3. Гибкое перераспределение рабочих
+        if (typeof mining.redistributeHarvesters === 'function') {
+            mining.redistributeHarvesters();
+        }
+    }
+
+    // Хранилище динамических приоритетов
+    private dynamicPriorityState: {
+        defensePriority: number,
+        economyPriority: number,
+        bottleneckPriority: number,
+        mainBottleneck: MaraResourceType | null
+    } = {
+        defensePriority: 1,
+        economyPriority: 1,
+        bottleneckPriority: 1,
+        mainBottleneck: null
+    };
 
     protected makeSelfTask(tickNumber: number): SettlementSubcontrollerTask | null {
         let taskCandidates = new Array<SettlementSubcontrollerTask>();
@@ -64,50 +129,75 @@ export class DevelopmentSubcontroller extends MaraTaskableSubcontroller {
         let produceableCfgIds = this.settlementController.ProductionController.GetProduceableCfgIds();
 
         let shortestUnavailableChain = this.getShortestUnavailableChain(economyComposition, produceableCfgIds);
-
         let selectedCfgIds: Array<string> | null = null;
-    
-        if (shortestUnavailableChain) {
-            selectedCfgIds = shortestUnavailableChain;
-        }
-        else {
-            this.Debug(`All strategy production chains are unlocked, proceeding to enhance settlement`);
-            
-            let economyBoosterChain: Array<string> = this.getEconomyBoosterAndChain(economyComposition);
-            this.Debug(`Economy boosters & chain: ${economyBoosterChain.join(", ")}`);
 
-            let healerChain: Array<string> = this.getHealerAndChain(economyComposition);
-            this.Debug(`Healers & chain: ${healerChain.join(", ")}`);
-            
-            let settlementDevelopers = [economyBoosterChain, healerChain];
-            settlementDevelopers = settlementDevelopers.filter((item) => item.length > 0);
-
-            let reinforcementProducer: Array<string> = this.getReinforcementProducer(economyComposition);
-            reinforcementProducer = reinforcementProducer.filter((item) => item.length > 0);
-            this.Debug(`Reinforcements producer: ${reinforcementProducer.join(", ")}`);
-
-            if (settlementDevelopers.length > 0 && reinforcementProducer.length > 0) {
-                let pick = MaraUtils.Random(this.settlementController.MasterMind, 100);
-
-                if (pick < this.settlementController.Settings.ControllerStates.DevelopmentToReinforcementRatio) {
-                    selectedCfgIds = MaraUtils.RandomSelect(this.settlementController.MasterMind, settlementDevelopers)!;
-                }
-                else {
-                    selectedCfgIds = reinforcementProducer;
+        // --- Динамическая приоритизация ---
+        // Если есть bottleneck по ресурсу — приоритет соответствующих построек
+        if (this.dynamicPriorityState.mainBottleneck !== null && this.dynamicPriorityState.bottleneckPriority > 1) {
+            const bottleneckType = this.dynamicPriorityState.mainBottleneck;
+            let bottleneckCfgIds: Array<string> = [];
+            if (bottleneckType === MaraResourceType.Wood) {
+                bottleneckCfgIds = MaraUtils.GetAllSawmillConfigIds(this.settlementController.Settlement);
+            } else if (bottleneckType === MaraResourceType.Metal || bottleneckType === MaraResourceType.Gold) {
+                bottleneckCfgIds = MaraUtils.GetAllMineConfigIds(this.settlementController.Settlement);
+            } else if (bottleneckType === MaraResourceType.People) {
+                bottleneckCfgIds = MaraUtils.GetAllHousingConfigIds(this.settlementController.Settlement);
+            }
+            // Добавляем цепочку технологий для устранения bottleneck
+            for (const cfgId of bottleneckCfgIds) {
+                if (!economyComposition.has(cfgId)) {
+                    selectedCfgIds = this.addTechChain(cfgId, economyComposition);
+                    this.Debug(`[AI] Prioritizing tech/building for bottleneck: ${cfgId}`);
+                    break;
                 }
             }
-            else {
-                let cfgIds = [...settlementDevelopers, reinforcementProducer];
-                cfgIds = cfgIds.filter((item) => item.length > 0);
-                
-                selectedCfgIds = MaraUtils.RandomSelect(this.settlementController.MasterMind, cfgIds);
+        }
+
+        // Если часто атакуют — приоритет оборонительных технологий
+        if (!selectedCfgIds && this.dynamicPriorityState.defensePriority > 1) {
+            let defenseCfgIds = this.settlementController.StrategyController.GlobalStrategy.DefensiveBuildingsCfgIds.map(i => i.CfgId);
+            for (const cfgId of defenseCfgIds) {
+                if (!economyComposition.has(cfgId)) {
+                    selectedCfgIds = this.addTechChain(cfgId, economyComposition);
+                    this.Debug(`[AI] Prioritizing defense tech/building: ${cfgId}`);
+                    break;
+                }
+            }
+        }
+
+        // Если нет угроз и bottleneck-ов — стандартная логика
+        if (!selectedCfgIds) {
+            if (shortestUnavailableChain) {
+                selectedCfgIds = shortestUnavailableChain;
+            } else {
+                this.Debug(`All strategy production chains are unlocked, proceeding to enhance settlement`);
+                let economyBoosterChain: Array<string> = this.getEconomyBoosterAndChain(economyComposition);
+                this.Debug(`Economy boosters & chain: ${economyBoosterChain.join(", ")}`);
+                let healerChain: Array<string> = this.getHealerAndChain(economyComposition);
+                this.Debug(`Healers & chain: ${healerChain.join(", ")}`);
+                let settlementDevelopers = [economyBoosterChain, healerChain];
+                settlementDevelopers = settlementDevelopers.filter((item) => item.length > 0);
+                let reinforcementProducer: Array<string> = this.getReinforcementProducer(economyComposition);
+                reinforcementProducer = reinforcementProducer.filter((item) => item.length > 0);
+                this.Debug(`Reinforcements producer: ${reinforcementProducer.join(", ")}`);
+                if (settlementDevelopers.length > 0 && reinforcementProducer.length > 0) {
+                    let pick = MaraUtils.Random(this.settlementController.MasterMind, 100);
+                    if (pick < this.settlementController.Settings.ControllerStates.DevelopmentToReinforcementRatio) {
+                        selectedCfgIds = MaraUtils.RandomSelect(this.settlementController.MasterMind, settlementDevelopers)!;
+                    } else {
+                        selectedCfgIds = reinforcementProducer;
+                    }
+                } else {
+                    let cfgIds = [...settlementDevelopers, reinforcementProducer];
+                    cfgIds = cfgIds.filter((item) => item.length > 0);
+                    selectedCfgIds = MaraUtils.RandomSelect(this.settlementController.MasterMind, cfgIds);
+                }
             }
         }
 
         if (selectedCfgIds) {
             return new DevelopSettlementTask(selectedCfgIds, this.settlementController, this);
-        }
-        else {
+        } else {
             return null;
         }
     }

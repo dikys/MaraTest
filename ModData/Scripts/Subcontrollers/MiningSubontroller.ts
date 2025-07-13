@@ -1065,39 +1065,8 @@ export class MiningSubcontroller extends MaraTaskableSubcontroller {
         return cell;
     }
 
-    private redistributeHarvesters(): void {
-        let minerRequrement = 0;
-
-        for (let mineData of this.mines) {
-            let requiredMiners = this.getMinerCount(mineData.Mine!);
-            
-            if (mineData.Miners.length < requiredMiners) {
-                minerRequrement += requiredMiners - mineData.Miners.length;
-            }
-            else if (mineData.Miners.length > requiredMiners) {
-                mineData.Miners.length = requiredMiners;
-            }
-        }
-
-        const minWoodcuttersPerSawmill = this.settlementController.Settings.ResourceMining.MinWoodcuttersPerSawmill;
-
-        if (minerRequrement > 0) {
-            for (let sawmillData of this.Sawmills) {
-                if (sawmillData.Woodcutters.length > minWoodcuttersPerSawmill) {
-                    // just remove woodcutters from array which marks them as free
-                    // they will be processed in engageFreeHarvesters() later
-
-                    let maxWoodcuttersToRemove = Math.min(sawmillData.Woodcutters.length - minWoodcuttersPerSawmill, minerRequrement);
-                    sawmillData.Woodcutters = sawmillData.Woodcutters.splice(0, maxWoodcuttersToRemove);
-                    
-                    minerRequrement -= maxWoodcuttersToRemove;
-
-                    if (minerRequrement == 0) {
-                        break;
-                    }
-                }
-            }
-        }
+    public redistributeHarvesters(): void {
+        this.engageFreeHarvesters();
     }
 
     private engageFreeHarvesters(): void {
