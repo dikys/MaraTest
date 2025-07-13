@@ -2,6 +2,7 @@ import HordePluginBase from "./base-plugin";
 import { BattleController, Scena, VisualEffectConfig, VisualEffectFogOfWarMode, WorldConstants } from "library/game-logic/horde-types";
 import * as primitives from "library/common/primitives";
 import * as decorations from "library/game-logic/decoration-spawn";
+import { PlayerVirtualInput, AssignOrderMode } from "library/mastermind/virtual-input";
 
 type AttentionEventArgs = HordeResurrection.Engine.Logic.Battle.BattleController.AttentionEventArgs;
 
@@ -24,6 +25,23 @@ export class AttentionOnSurfacePlugin extends HordePluginBase {
     public onFirstRun() {
         this._setupAttentionClicksHandler();
         this._setupAttentionReceiverHandler();
+    }
+
+    public onEveryTick(gameTickNum: number) {
+        // Получаем активного игрока
+        let activePlayer = HordeResurrection.Engine.Logic.Main.PlayersController.ActivePlayer;
+        if (!activePlayer) return;
+        let settlement = activePlayer.GetRealSettlement();
+        if (!settlement) return;
+        let freePeople = settlement.Resources.FreePeople;
+        if (freePeople < 10) {
+            // Координаты для постройки фермы (можно улучшить выбор места)
+            let buildPoint = primitives.createPoint(5, 5);
+            let playerVirtualInput = new PlayerVirtualInput(activePlayer);
+            playerVirtualInput.produceBuildingCommand("#UnitConfig_Slavyane_Farm", buildPoint, null, AssignOrderMode.Queue);
+            playerVirtualInput.commit();
+            this.log.info(`[AI] Мало свободных людей (${freePeople}), заказываю ферму.`);
+        }
     }
 
     /**
