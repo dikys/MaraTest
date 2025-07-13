@@ -1,9 +1,8 @@
-import { MaraPriority } from "../MaraPriority";
+// MaraAIConfig.ts
+// Конфиг с параметрами ИИ для всех контроллеров
+import { MaraPriority } from "./MaraPriority";
 
-/**
- * @deprecated Используйте MaraAIConfig вместо этого класса для всех новых контроллеров и логики ИИ.
- */
-export class MaraSettlementControllerSettings {
+export class MaraAIConfig {
     public UnitSearch: UnitSearchSettings = new UnitSearchSettings();
     public Timeouts: TimeoutsSettings = new TimeoutsSettings();
     public Squads: SquadsSettings = new SquadsSettings();
